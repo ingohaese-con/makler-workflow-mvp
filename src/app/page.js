@@ -1,9 +1,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 
 export default function Home() {
+  const router = useRouter()
+
   const [data, setData] = useState(null)
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -11,14 +14,26 @@ export default function Home() {
   const [countdown, setCountdown] = useState(3)
 
   useEffect(() => {
+    let cancelled = false
+
     ;(async () => {
-      // Prüfe zuerst, ob User eingeloggt ist
-      const { data: userData } = await supabase.auth.getUser()
+      setLoading(true)
+
+      // User prüfen
+      const { data: userData, error: userError } = await supabase.auth.getUser()
+      if (cancelled) return
+
+      if (userError) {
+        // Optional: Auth-Fehler sichtbar machen
+        setError(userError)
+      }
+
       const u = userData?.user ?? null
       setUser(u)
 
-      // Wenn nicht eingeloggt, starte Countdown
+      // Wenn nicht eingeloggt, Countdown vorbereiten und nicht weiter laden
       if (!u) {
+        setCountdown(3)
         setLoading(false)
         return
       }
@@ -30,30 +45,36 @@ export default function Home() {
         .order('created_at', { ascending: false })
         .limit(5)
 
+      if (cancelled) return
+
       if (error) setError(error)
       else setData(data)
 
       setLoading(false)
     })()
+
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   // Countdown-Timer für Weiterleitung
   useEffect(() => {
-    if (!loading && !user) {
-      const timer = setInterval(() => {
-        setCountdown((prev) => {
-          if (prev <= 1) {
-            clearInterval(timer)
-            window.location.href = '/login'
-            return 0
-          }
-          return prev - 1
-        })
-      }, 1000)
+    if (loading || user) return
 
-      return () => clearInterval(timer)
-    }
+    const timer = setInterval(() => {
+      setCountdown((prev) => prev - 1)
+    }, 1000)
+
+    return () => clearInterval(timer)
   }, [loading, user])
+
+  // Redirect wenn Countdown abgelaufen
+  useEffect(() => {
+    if (!loading && !user && countdown <= 0) {
+      router.replace('/login')
+    }
+  }, [countdown, loading, user, router])
 
   // Während Auth-Prüfung
   if (loading) {
@@ -64,13 +85,28 @@ export default function Home() {
     )
   }
 
-  // Wenn nicht eingeloggt: Zeige Meldung mit Countdown
+  // Wenn nicht eingeloggt: Meldung + Countdown wirklich zentriert
   if (!user) {
     return (
-      <main style={{ padding: 24, fontFamily: 'system-ui', textAlign: 'center' }}>
+      <main
+        style={{
+          minHeight: '100vh',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+          alignItems: 'center',
+          padding: 24,
+          fontFamily: 'system-ui',
+          textAlign: 'center',
+        }}
+      >
         <h1>Nicht eingeloggt</h1>
-        <p style={{ fontSize: '18px', marginTop: '20px' }}>
-          Weiterleitung zum Login in <strong style={{ fontSize: '24px', color: '#0066cc' }}>{countdown}</strong> Sekunden...
+        <p style={{ fontSize: 18, marginTop: 20 }}>
+          Weiterleitung zum Login in{' '}
+          <strong style={{ fontSize: 24, color: '#0066cc' }}>
+            {Math.max(countdown, 0)}
+          </strong>{' '}
+          Sekunden…
         </p>
       </main>
     )
@@ -96,4 +132,3 @@ export default function Home() {
     </main>
   )
 }
-
